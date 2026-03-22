@@ -1,6 +1,6 @@
 The MIT License (MIT)
 
-Copyright © 2013–2023 Fred Condo  
+Copyright © 2013–2026 Fred Condo  
 Copyright © 2018 Federico Jaramillo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
