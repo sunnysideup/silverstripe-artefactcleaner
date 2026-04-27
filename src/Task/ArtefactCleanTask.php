@@ -14,9 +14,13 @@ use SilverStripe\ORM\DB;
 class ArtefactCleanTask extends BuildTask
 {
     private const IFEXISTS = 'IF EXISTS';
+
     protected $description = 'Display and optionally run queries to delete obsolete columns, indexes, and tables.';
+
     protected $title = 'Display [remove] Database Artefacts';
+
     private $if_exists;
+
     private static $segment = 'ArtefactCleanTask';
 
     public function run($request): void
@@ -25,7 +29,7 @@ class ArtefactCleanTask extends BuildTask
         $this->if_exists = $request->requestVar('ifexists') ? self::IFEXISTS : '';
         $artefacts = $this->artefacts();
 
-        if (empty($artefacts)) {
+        if ($artefacts === []) {
             $this->headerLine('Schema is clean; nothing to drop.');
             return;
         }
@@ -73,28 +77,32 @@ class ArtefactCleanTask extends BuildTask
             $oldSchema[$dbTableName]['indexes'] = DB::get_schema()->indexList($dbTableName);
             $oldSchema[$dbTableName]['fields'] = DB::field_list($dbTableName);
         }
-        $test = new TempDatabase();
+
+        $test = TempDatabase::create();
         $test->build();
         foreach (DB::table_list() as $lowercase => $dbTableName) {
             $newSchema[$lowercase] = ['indexes' => [], 'fields' => []];
             $newSchema[$lowercase]['indexes'] = DB::get_schema()->indexList($dbTableName);
             $newSchema[$lowercase]['fields'] = DB::field_list($dbTableName);
         }
+
         $test->kill();
         DB::get_conn()->selectDatabase($current);
         $artefacts = [];
         foreach ($oldSchema as $table => $data) {
-            if (!isset($newSchema[strtolower($table)])) {
+            if (!isset($newSchema[strtolower((string) $table)])) {
                 $artefacts[$table] = $table;
                 continue;
             }
-            foreach ($data['fields'] as $field => $spec) {
-                if (!isset($newSchema[strtolower($table)]['fields'][$field])) {
+
+            foreach (array_keys($data['fields']) as $field) {
+                if (!isset($newSchema[strtolower((string) $table)]['fields'][$field])) {
                     $artefacts[$table]['fields'][$field] = $field;
                 }
             }
-            foreach ($data['indexes'] as $index => $spec) {
-                if (!isset($newSchema[strtolower($table)]['indexes'][$index])) {
+
+            foreach (array_keys($data['indexes']) as $index) {
+                if (!isset($newSchema[strtolower((string) $table)]['indexes'][$index])) {
                     $artefacts[$table]['indexes'][$index] = $index;
                 }
             }
@@ -109,11 +117,14 @@ class ArtefactCleanTask extends BuildTask
             if (isset($drop['indexes']) && $drop['indexes']) {
                 $this->writeLine($this->dropIndexes($table, $drop['indexes'], $dropping));
             }
+
             if (isset($drop['fields']) && $drop['fields']) {
                 $this->writeLine($this->dropColumns($table, $drop['fields'], $dropping));
             }
+
             return;
         }
+
         $this->writeLine($this->dropTable($table, $dropping));
     }
 
@@ -128,6 +139,7 @@ class ArtefactCleanTask extends BuildTask
         if ($dropping) {
             DB::query($query);
         }
+
         return $query;
     }
 
@@ -142,6 +154,7 @@ class ArtefactCleanTask extends BuildTask
         if ($dropping) {
             DB::query($query);
         }
+
         return $query;
     }
 
@@ -151,6 +164,7 @@ class ArtefactCleanTask extends BuildTask
         if ($dropping) {
             DB::query($query);
         }
+
         return $query;
     }
 
@@ -161,16 +175,16 @@ class ArtefactCleanTask extends BuildTask
             return;
         }
 
-        echo CLI::text("<strong>{$message}</strong>");
+        echo CLI::text(sprintf('<strong>%s</strong>', $message));
     }
 
     private function writeLine(string $message): void
     {
         if (Director::is_cli()) {
-            echo CLI::text("{$message}\n", 'yellow');
+            echo CLI::text($message . PHP_EOL, 'yellow');
             return;
         }
 
-        echo CLI::text("<p>{$message}</p>");
+        echo CLI::text(sprintf('<p>%s</p>', $message));
     }
 }
