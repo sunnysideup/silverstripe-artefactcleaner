@@ -1,93 +1,114 @@
 <?php
 
-use SilverStripe\Control\Director;
+namespace Oddnoc\ArtefactCleaner\Task;
+
 use SilverStripe\Dev\BuildTask;
-use SilverStripe\Dev\CLI;
 use SilverStripe\ORM\Connect\TempDatabase;
 use SilverStripe\ORM\DB;
+use SilverStripe\PolyExecution\PolyOutput;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 
 /**
  * SilverStripe task that deletes unused Tables, Columns and Indexes.
  */
 class ArtefactCleanTask extends BuildTask
 {
-    protected $title = 'Display [remove] Database Artefacts';
-    protected $description = 'Display and optionally run queries to delete obsolete columns, indexes, and tables.';
-    private const IFEXISTS = 'IF EXISTS';
+    private const string IFEXISTS = 'IF EXISTS';
+
+    protected static string $description = 'Display and optionally run queries to delete obsolete columns, indexes, and tables.';
+
+    protected string $title = 'Display [remove] Database Artefacts';
+
     private $if_exists;
 
-    public function run($request)
+    protected static string $commandName = 'artefact-clean';
+
+    private PolyOutput $output;
+
+    protected function execute(InputInterface $input, PolyOutput $output): int
     {
-        $dropping = (bool) $request->requestVar('dropping');
-        $this->if_exists = $request->requestVar('ifexists') ? self::IFEXISTS : '';
+        $this->output = $output;
+        $dropping = (bool)$input->getOption('dropping');
+        $this->if_exists = $input->getOption('ifexists') ? self::IFEXISTS : '';
         $artefacts = $this->artefacts();
-        if (empty($artefacts)) {
+        if ($artefacts === []) {
             $this->headerLine('Schema is clean; nothing to drop.');
-            return;
+            return Command::SUCCESS;
         }
+
         switch ($dropping) {
             case true:
                 $this->headerLine('Dropping artefacts');
                 break;
-
             case false:
                 $this->headerLine('SQL queries');
                 break;
         }
+
         foreach ($artefacts as $table => $drop) {
             $this->cleanTable($table, $drop, $dropping);
         }
+
         $this->headerLine('Next step');
         switch ($dropping) {
             case true:
                 $this->writeLine('Re-checking for artefacts');
-                $request->offsetUnset('dropping');
-                $this->run($request);
+                // @TODO (SS6 upgrade) - recursively re-running the task is not supported in the new architecture
+                // Re-run the task manually if needed
                 break;
             case false:
                 $this->writeLine('Delete the artefacts (IRREVERSIBLE!):');
                 $this->writeLine('');
-                $this->writeLine('  vendor/bin/sake dev/tasks/' . __class__ . ' dropping=1');
-                $this->writeLine('  vendor/bin/sake dev/tasks/' . __class__ . ' dropping=1 ifexists=1');
+                $commandName = static::$commandName;
+                $this->writeLine("- vendor/bin/sake tasks:{$commandName} --dropping");
+                $this->writeLine("- vendor/bin/sake tasks:{$commandName} --dropping --ifexists");
                 break;
         }
+
+        return Command::SUCCESS;
     }
 
     /**
      * @return array
      */
-    private function artefacts()
+    private function artefacts(): array
     {
         $oldSchema = [];
         $newSchema = [];
         $current = DB::get_conn()->getSelectedDatabase();
         foreach (DB::table_list() as $lowercase => $dbTableName) {
-            $oldSchema[$dbTableName] = ['indexes'=> [], 'fields' => []];
+            $oldSchema[$dbTableName] = ['indexes' => [], 'fields' => []];
             $oldSchema[$dbTableName]['indexes'] = DB::get_schema()->indexList($dbTableName);
             $oldSchema[$dbTableName]['fields'] = DB::field_list($dbTableName);
         }
-        $test = new TempDatabase();
+
+        $test = TempDatabase::create();
         $test->build();
         foreach (DB::table_list() as $lowercase => $dbTableName) {
-            $newSchema[$lowercase] = ['indexes'=> [], 'fields' => []];
+            $newSchema[$lowercase] = ['indexes' => [], 'fields' => []];
             $newSchema[$lowercase]['indexes'] = DB::get_schema()->indexList($dbTableName);
             $newSchema[$lowercase]['fields'] = DB::field_list($dbTableName);
         }
+
         $test->kill();
         DB::get_conn()->selectDatabase($current);
         $artefacts = [];
         foreach ($oldSchema as $table => $data) {
-            if (!isset($newSchema[strtolower($table)])) {
+            if (!isset($newSchema[strtolower((string) $table)])) {
                 $artefacts[$table] = $table;
                 continue;
             }
-            foreach ($data['fields'] as $field => $spec) {
-                if (!isset($newSchema[strtolower($table)]['fields'][$field])) {
+
+            foreach (array_keys($data['fields']) as $field) {
+                if (!isset($newSchema[strtolower((string) $table)]['fields'][$field])) {
                     $artefacts[$table]['fields'][$field] = $field;
                 }
             }
-            foreach ($data['indexes'] as $index => $spec) {
-                if (!isset($newSchema[strtolower($table)]['indexes'][$index])) {
+
+            foreach (array_keys($data['indexes']) as $index) {
+                if (!isset($newSchema[strtolower((string) $table)]['indexes'][$index])) {
                     $artefacts[$table]['indexes'][$index] = $index;
                 }
             }
@@ -96,30 +117,24 @@ class ArtefactCleanTask extends BuildTask
         return $artefacts;
     }
 
-    private function cleanTable($table, $drop, $dropping)
+    private function cleanTable(string $table, $drop, bool $dropping): void
     {
         if (is_array($drop)) {
             if (isset($drop['indexes']) && $drop['indexes']) {
                 $this->writeLine($this->dropIndexes($table, $drop['indexes'], $dropping));
             }
+
             if (isset($drop['fields']) && $drop['fields']) {
                 $this->writeLine($this->dropColumns($table, $drop['fields'], $dropping));
             }
+
             return;
         }
+
         $this->writeLine($this->dropTable($table, $dropping));
     }
 
-    private function dropTable($table, $dropping)
-    {
-        $query = sprintf('DROP TABLE %s `%s`', $this->if_exists, $table);
-        if ($dropping) {
-            DB::query($query);
-        }
-        return $query;
-    }
-
-    private function dropColumns($table, $columns, $dropping)
+    private function dropColumns(string $table, array $columns, bool $dropping): string
     {
         $query = sprintf(
             'ALTER TABLE `%s` DROP %s `%s`',
@@ -130,10 +145,11 @@ class ArtefactCleanTask extends BuildTask
         if ($dropping) {
             DB::query($query);
         }
+
         return $query;
     }
 
-    private function dropIndexes($table, $indexes, $dropping)
+    private function dropIndexes(string $table, array $indexes, bool $dropping): string
     {
         $query = sprintf(
             'ALTER TABLE `%s` DROP INDEX %s `%s`',
@@ -144,26 +160,35 @@ class ArtefactCleanTask extends BuildTask
         if ($dropping) {
             DB::query($query);
         }
+
         return $query;
     }
 
-    private function headerLine($message)
+    private function dropTable(string $table, bool $dropping): string
     {
-        if (Director::is_cli()) {
-            echo CLI::text("\n## $message ##\n", 'cyan');
-            return;
+        $query = sprintf('DROP TABLE %s `%s`', $this->if_exists, $table);
+        if ($dropping) {
+            DB::query($query);
         }
 
-        echo CLI::text("<strong>$message</strong>");
+        return $query;
     }
 
-    private function writeLine($message)
+    public function getOptions(): array
     {
-        if (Director::is_cli()) {
-            echo CLI::text("  $message\n", 'yellow');
-            return;
-        }
+        return [
+            new InputOption('dropping', 'd', InputOption::VALUE_NONE, 'Execute the drop queries (IRREVERSIBLE!)'),
+            new InputOption('ifexists', 'i', InputOption::VALUE_NONE, 'Add "IF EXISTS" clause to drop statements'),
+        ];
+    }
 
-        echo CLI::text("<p>$message</p>");
+    private function headerLine(string $message): void
+    {
+        $this->output->writeln(sprintf('<info>## %s ##</info>', $message));
+    }
+
+    private function writeLine(string $message): void
+    {
+        $this->output->writeln($message);
     }
 }

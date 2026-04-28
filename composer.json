@@ -7,14 +7,15 @@
     "silverstripe",
     "framework",
     "database",
-    "utility"
+    "utility",
+    "obsolete"
   ],
   "license": "MIT",
   "authors": [
     {
       "name": "Fred Condo",
-      "email": "fred@fredcondo.net",
-      "homepage": "http://oddnoc.github.io",
+      "email": "fred@fredcondo.com",
+      "homepage": "https://oddnoc.github.io",
       "role": "developer"
     },
     {
@@ -28,6 +29,22 @@
     "issues": "https://github.com/oddnoc/silverstripe-artefactcleaner/issues"
   },
   "require": {
-    "silverstripe/framework": "^4.2"
+    "silverstripe/framework": "^6.0"
+  },
+  "require-dev": {
+    "squizlabs/php_codesniffer": "^3.7"
+  },
+  "autoload": {
+    "psr-4": {
+      "Oddnoc\\ArtefactCleaner\\": "src/"
+    }
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true,
+  "config": {
+    "allow-plugins": {
+      "composer/installers": true,
+      "silverstripe/vendor-plugin": true
+    }
   }
 }
