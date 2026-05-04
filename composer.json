@@ -1,5 +1,5 @@
 {
-  "name": "oddnoc/silverstripe-artefactcleaner",
+  "name": "sunnysideup/silverstripe-artefactcleaner",
   "description": "Find and optionally delete unused tables, columns and indexes in a SilverStripe database",
   "type": "silverstripe-vendormodule",
   "homepage": "https://github.com/oddnoc/silverstripe-artefactcleaner",
