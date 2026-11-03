@@ -26,6 +26,14 @@ class ArtefactCleanTask extends BuildTask
     public function run($request): void
     {
         $dropping = (bool)$request->requestVar('dropping');
+        if ($dropping) {
+            if (! Director::is_cli()) {
+                echo 'This task can only be run on the command line.';
+
+                return;
+            }
+        }
+
         $this->if_exists = $request->requestVar('ifexists') ? self::IFEXISTS : '';
         $artefacts = $this->artefacts();
 
